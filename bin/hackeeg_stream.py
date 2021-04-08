@@ -11,12 +11,19 @@ import uuid
 import time
 import sys
 import select
+import msvcrt
 
 from pylsl import StreamInfo, StreamOutlet
 
 import hackeeg
 from hackeeg import ads1299
 from hackeeg.driver import SPEEDS, GAINS, Status
+
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+import tkinter as tk
+import numpy as np
+import time
 
 DEFAULT_NUMBER_OF_SAMPLES_TO_CAPTURE = 50000
 
@@ -46,13 +53,24 @@ class NonBlockingConsole(object):
 
 
 class WindowsNonBlockingConsole(object):
-    def init(self):
-        import msvcrt
+    # def init(self):
+    #     import msvcrt
+
+    # def get_data(self):
+    #     if msvcrt.kbhit():
+    #         char = msvcrt.getch()
+    #         return char
+    #     return False
+
+    def __init__(self):
+        self.serial_port = None
+
+    def init(self, serial_port=None):
+        self.serial_port = serial_port
 
     def get_data(self):
-        if msvcrt.kbhit():
-            char = msvcrt.getch()
-            return char
+        if self.serial_port.in_waiting > 0:
+            return self.serial_port.read(1)
         return False
 
 
@@ -78,6 +96,7 @@ class HackEegTestApplication:
         self.stream_id = str(uuid.uuid4())
         self.read_samples_continuously = True
         self.continuous_mode = False
+        self.data_stream = np.array([])
 
         print(f"platform: {sys.platform}")
         if sys.platform == "linux" or sys.platform == "linux2" or sys.platform == "darwin":
@@ -158,10 +177,10 @@ class HackEegTestApplication:
         self.hackeeg.wreg(ads1299.CHnSET + 2, ads1299.ELECTRODE_INPUT | gain_setting)
         self.hackeeg.wreg(ads1299.CHnSET + 3, ads1299.ELECTRODE_INPUT | gain_setting)
         self.hackeeg.wreg(ads1299.CHnSET + 4, ads1299.ELECTRODE_INPUT | gain_setting)
-        self.hackeeg.wreg(ads1299.CHnSET + 5, ads1299.ELECTRODE_INPUT | gain_setting)
-        self.hackeeg.wreg(ads1299.CHnSET + 6, ads1299.ELECTRODE_INPUT | gain_setting)
-        self.hackeeg.wreg(ads1299.CHnSET + 7, ads1299.ELECTRODE_INPUT | gain_setting)
-        self.hackeeg.wreg(ads1299.CHnSET + 8, ads1299.ELECTRODE_INPUT | gain_setting)
+        self.hackeeg.wreg(ads1299.CHnSET + 5, ads1299.ELECTRODE_INPUT | 0)
+        self.hackeeg.wreg(ads1299.CHnSET + 6, ads1299.ELECTRODE_INPUT | 0)
+        self.hackeeg.wreg(ads1299.CHnSET + 7, ads1299.ELECTRODE_INPUT | 0)
+        self.hackeeg.wreg(ads1299.CHnSET + 8, ads1299.ELECTRODE_INPUT | 0)
 
     def channel_config_test(self):
         # test_signal_mode = ads1299.INT_TEST_DC | ads1299.CONFIG2_const
@@ -180,7 +199,6 @@ class HackEegTestApplication:
         # for channel in range(1, 9):
         #     self.hackeeg.wreg(ads1299.CHnSET + channel, ads1299.TEST_SIGNAL | gain_setting )
         pass
-
 
 
     def parse_args(self):
@@ -217,12 +235,16 @@ class HackEegTestApplication:
         parser.add_argument("--quiet", "-q",
                             help=f"quiet mode– do not print sample data (used for performance testing)",
                             action="store_true")
+        parser.add_argument("--fileName", "-f",
+                            help=f"data output file name",
+                            type=str)
         args = parser.parse_args()
         if args.debug:
             self.debug = True
             print("debug mode on")
         self.samples_per_second = args.sps
         self.gain = args.gain
+        self.fileName = args.fileName
 
         if args.continuous:
             self.continuous_mode = True
@@ -237,6 +259,7 @@ class HackEegTestApplication:
 
         self.serial_port_name = args.serial_port
         self.hackeeg = hackeeg.HackEEGBoard(self.serial_port_name, baudrate=2000000, debug=self.debug)
+        self.non_blocking_console.init(self.hackeeg.raw_serial_port)
         self.max_samples = args.samples
         self.channel_test = args.channel_test
         self.quiet = args.quiet
@@ -244,33 +267,36 @@ class HackEegTestApplication:
         self.messagepack = args.messagepack
         self.hackeeg.connect()
         self.setup(samples_per_second=self.samples_per_second, gain=self.gain, messagepack=self.messagepack)
+        self.dataMatrix = []  # initialize data matrix to RAM
 
     def process_sample(self, result, samples):
-        data = None
-        channel_data = None
         if result:
             status_code = result.get(self.hackeeg.MpStatusCodeKey)
             data = result.get(self.hackeeg.MpDataKey)
-            samples.append(result)
+            #samples.append(result)
             if status_code == Status.Ok and data:
+                timestamp = result.get('timestamp')
+                sample_number = result.get('sample_number')
+                # ads_gpio = result.get(‘ads_gpio’)
+                # loff_statp = result.get(‘loff_statp’)
+                # loff_statn = result.get(‘loff_statn’)
+                channel_data = result.get('channel_data')
+                # data_hex = result.get(‘data_hex’)
                 if not self.quiet:
-                    timestamp = result.get('timestamp')
-                    sample_number = result.get('sample_number')
-                    ads_gpio = result.get('ads_gpio')
-                    loff_statp = result.get('loff_statp')
-                    loff_statn = result.get('loff_statn')
-                    channel_data = result.get('channel_data')
-                    data_hex = result.get('data_hex')
-                    print(
-                        f"timestamp:{timestamp} sample_number: {sample_number}| gpio:{ads_gpio} loff_statp:{loff_statp} loff_statn:{loff_statn}   ",
-                        end='')
-                    if self.hex:
-                        print(data_hex)
+                    print(f"timestamp:{timestamp} sample_number: {sample_number}| ",
+                            end='')
+                    for channel_number, sample in enumerate(channel_data):
+                        print(f"{channel_number + 1}:{sample}", end='')
+                if self.fileName:
+                    myList = [timestamp,sample_number]
+                    if sample_number>=1 and abs(channel_data[-1]-self.dataMatrix[-1][-1])>20000:
+                        # print(f"bad data diff: {abs(channel_data[-1]-self.dataMatrix[-1][-1])}")
+                        self.dataMatrix.append(self.dataMatrix[-1])
                     else:
                         for channel_number, sample in enumerate(channel_data):
-                            print(f"{channel_number + 1}:{sample} ", end='')
-                        print()
-                if self.lsl and channel_data:
+                            myList.append(sample)
+                        self.dataMatrix.append(myList)
+                if self.lsl:
                     self.lsl_outlet.push_sample(channel_data)
             else:
                 if not self.quiet:
@@ -279,14 +305,64 @@ class HackEegTestApplication:
             print("no data to decode")
             print(f"result: {result}")
 
+    
+
+
     def main(self):
+
+        # def plot_data():
+        #     if ((len(self.dataMatrix) < self.max_samples and not self.continuous_mode) or \
+        #         (self.read_samples_continuously and self.continuous_mode)):
+        #         result = self.hackeeg.read_rdatac_response()
+        #         if self.continuous_mode:
+        #             self.read_keyboard_input()
+        #         self.process_sample(result, samples)
+        #         if self.dataMatrix[-1]:
+        #             if len(self.data_stream) < 1000:
+        #                 self.data_stream = np.append(self.data_stream, self.dataMatrix[-1][2])
+        #             else:
+        #                 self.data_stream[0:999] = self.data_stream[1:1000]
+        #                 self.data_stream[999] = self.dataMatrix[-1][2]
+        #             lines.set_xdata(np.arange(0,len(self.data_stream)))
+        #             lines.set_ydata(self.data_stream)
+        #             canvas.draw()
+        #     root.after(1,plot_data)
+
+        # #-----Main GUI code-----
+        # root = tk.Tk()
+        # root.title('Real Time Plot')
+        # root.configure(background = 'light blue')
+        # root.geometry("700x500") # window size
+
+        # #-----create Plot object on GUI-----
+        # # add figure canvas
+        # fig = Figure()
+        # ax = fig.add_subplot(111)
+
+        # #ax = plt.axes(xlim=(0,100), ylim=(0,120)) # 100 sample constraint
+        # ax.set_title("Serial Channel 1")
+        # ax.set_xlabel('Sample')
+        # ax.set_ylabel('Signal')
+        # ax.set_xlim(0,1000)
+        # ax.set_ylim(-10000000,10000000)
+        # lines = ax.plot([],[])[0]
+
+        # canvas = FigureCanvasTkAgg(fig, master=root) # A tk.DrawingArea
+        # canvas.get_tk_widget().place(x=10,y=10,width=600,height=400)
+        # canvas.draw()
+
+
+        #-----Reading in data-----
+
         self.parse_args()
 
         samples = []
         sample_counter = 0
 
-        end_time = time.perf_counter()
         start_time = time.perf_counter()
+        end_time = time.perf_counter()
+
+        print('Start Recording')
         while ((sample_counter < self.max_samples and not self.continuous_mode) or \
                (self.read_samples_continuously and self.continuous_mode)):
             result = self.hackeeg.read_rdatac_response()
@@ -296,14 +372,28 @@ class HackEegTestApplication:
                 self.read_keyboard_input()
             self.process_sample(result, samples)
 
+        # root.after(1,plot_data)
+
+        # root.mainloop()
+
+        # end_time = time.perf_counter()
+
+
         duration = end_time - start_time
         self.hackeeg.stop_and_sdatac_messagepack()
+        print('Saving data ....')
+        if self.fileName:
+            with open(self.fileName, 'w') as file:
+                file.writelines('\t'.join(str(j) for j in i) + '\n' for i in self.dataMatrix)
+                # save to file
+
         self.hackeeg.blink_board_led()
 
         print(f"duration in seconds: {duration}")
-        samples_per_second = sample_counter / duration
+        samples_per_second = len(self.dataMatrix) / duration
         print(f"samples per second: {samples_per_second}")
-        dropped_samples = self.find_dropped_samples(samples, sample_counter)
+        # dropped_samples = self.find_dropped_samples(samples, sample_counter)
+        dropped_samples = len(self.dataMatrix)-sample_counter
         print(f"dropped samples: {dropped_samples}")
 
 

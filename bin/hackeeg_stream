@@ -40,4 +40,3 @@ while [ $((attempts < 10)) ]; do
 done
 
 hackeeg_stream.py $PORT "$@"
-
