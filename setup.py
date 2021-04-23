@@ -36,6 +36,7 @@ setup(name='hackeeg',
       "gnureadline",
 			"pylsl",
       "matplotlib",
+      "tk"
       ],
       scripts=[
             "bin/example.py",

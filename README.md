@@ -1,3 +1,5 @@
+Need this for gnureadline: sudo apt-get install libncurses5-dev
+
 # hackeeg-client-python
 Python client software for [HackEEG TI ADS1299 Arduino shield](https://github.com/starcat-io/hackeeg-shield)
 

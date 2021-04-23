@@ -11,6 +11,7 @@ import uuid
 import time
 import sys
 import select
+import threading
 # import msvcrt
 
 from pylsl import StreamInfo, StreamOutlet
@@ -98,6 +99,8 @@ class HackEegTestApplication:
         self.continuous_mode = False
         self.data_stream = np.array([])
         self.sample_counter = 0
+        self.step = 0
+        self.graph_step = self.step
 
         print(f"platform: {sys.platform}")
         if sys.platform == "linux" or sys.platform == "linux2" or sys.platform == "darwin":
@@ -271,7 +274,7 @@ class HackEegTestApplication:
         self.setup(samples_per_second=self.samples_per_second, gain=self.gain, messagepack=self.messagepack)
         self.dataMatrix = []  # initialize data matrix to RAM
 
-    def process_sample(self, result, samples):
+    def process_sample(self, result):
         if result:
             status_code = result.get(self.hackeeg.MpStatusCodeKey)
             data = result.get(self.hackeeg.MpDataKey)
@@ -298,6 +301,7 @@ class HackEegTestApplication:
                         for channel_number, sample in enumerate(channel_data):
                             myList.append(sample)
                         self.dataMatrix.append(myList)
+                        self.step += 1
                 if self.lsl:
                     self.lsl_outlet.push_sample(channel_data)
             else:
@@ -307,81 +311,102 @@ class HackEegTestApplication:
             print("no data to decode")
             print(f"result: {result}")
 
-    
+    def getDataStream(self):
+        while ((self.sample_counter < self.max_samples and not self.continuous_mode) or \
+            (self.read_samples_continuously and self.continuous_mode)):
+            result = self.hackeeg.read_rdatac_response()
+            # end_time = time.perf_counter()
+            self.sample_counter += 1
+            if self.continuous_mode:
+                self.read_keyboard_input()
+            self.process_sample(result)
+        return
 
 
     def main(self):
+
         #-----Reading in data-----
 
         self.parse_args()
 
-        samples = []
+        # samples = []
         # sample_counter = 0
+
+        dataThread = threading.Thread(target=self.getDataStream)
+        dataThread.start()
+        print("Started data acquisition thread")
 
         start_time = time.perf_counter()
         end_time = time.perf_counter()
-        if False:
-            def plot_data():
-                if ((self.sample_counter < self.max_samples and not self.continuous_mode) or \
-                    (self.read_samples_continuously and self.continuous_mode)):
-                    result = self.hackeeg.read_rdatac_response()
-                    end_time = time.perf_counter()
-                    self.sample_counter += 1
-                    if self.continuous_mode:
-                        self.read_keyboard_input()
-                    self.process_sample(result, samples)
-                    if self.dataMatrix[-1]:
-                        temp = self.dataMatrix[-1][2]
-                        if len(self.data_stream) < 1000:
-                            self.data_stream = np.append(self.data_stream, temp)
-                        else:
-                            self.data_stream[0:999] = self.data_stream[1:1000]
-                            self.data_stream[999] = temp
-                        lines.set_xdata(np.arange(0,len(self.data_stream)))
-                        lines.set_ydata(self.data_stream)
-                        canvas.draw()
-                root.after(1,plot_data)
 
-            #-----Main GUI code-----
-            root = tk.Tk()
-            root.title('Real Time Plot')
-            root.configure(background = 'light blue')
-            root.geometry("700x500") # window size
-
-            #-----create Plot object on GUI-----
-            # add figure canvas
-            fig = Figure()
-            ax = fig.add_subplot(111)
-
-            #ax = plt.axes(xlim=(0,100), ylim=(0,120)) # 100 sample constraint
-            ax.set_title("Serial Channel 1")
-            ax.set_xlabel('Sample')
-            ax.set_ylabel('Signal')
-            ax.set_xlim(0,1000)
-            ax.set_ylim(-10000000,10000000)
-            lines = ax.plot([],[])[0]
-
-            canvas = FigureCanvasTkAgg(fig, master=root) # A tk.DrawingArea
-            canvas.get_tk_widget().place(x=10,y=10,width=600,height=400)
-            canvas.draw()
-
-            print('Start Recording')
-
+        def plot_data():
+            if not dataThread.is_alive():
+                root.quit()
+            if self.graph_step != self.step:
+                temp = self.dataMatrix[self.step-1][2]
+                if len(self.data_stream) < 1000:
+                    self.data_stream = np.append(self.data_stream, temp)
+                else:
+                    self.data_stream[0:999] = self.data_stream[1:1000]
+                    self.data_stream[999] = temp
+                lines.set_xdata(np.arange(0,len(self.data_stream)))
+                lines.set_ydata(self.data_stream)
+                canvas.draw()
+                self.graph_step = self.step
             root.after(1,plot_data)
 
-            root.mainloop()
+            # if ((self.sample_counter < self.max_samples and not self.continuous_mode) or \
+            #     (self.read_samples_continuously and self.continuous_mode)):
+            #     result = self.hackeeg.read_rdatac_response()
+            #     end_time = time.perf_counter()
+            #     self.sample_counter += 1
+            #     if self.continuous_mode:
+            #         self.read_keyboard_input()
+            #     self.process_sample(result, samples)
+            #     if self.dataMatrix[-1]:
+            #         temp = self.dataMatrix[-1][2]
+            #         if len(self.data_stream) < 1000:
+            #             self.data_stream = np.append(self.data_stream, temp)
+            #         else:
+            #             self.data_stream[0:999] = self.data_stream[1:1000]
+            #             self.data_stream[999] = temp
+            #         lines.set_xdata(np.arange(0,len(self.data_stream)))
+            #         lines.set_ydata(self.data_stream)
+            #         canvas.draw()
+            # root.after(1,plot_data)
 
-            end_time = time.perf_counter()
-        else:
-            print('Start Recording')
-            while ((self.sample_counter < self.max_samples and not self.continuous_mode) or \
-                (self.read_samples_continuously and self.continuous_mode)):
-                result = self.hackeeg.read_rdatac_response()
-                end_time = time.perf_counter()
-                self.sample_counter += 1
-                if self.continuous_mode:
-                    self.read_keyboard_input()
-                self.process_sample(result, samples)
+        #-----Main GUI code-----
+        root = tk.Tk()
+        root.title('Real Time Plot')
+        root.configure(background = 'light blue')
+        root.geometry("700x500") # window size
+
+        #-----create Plot object on GUI-----
+        # add figure canvas
+        fig = Figure()
+        ax = fig.add_subplot(111)
+
+        #ax = plt.axes(xlim=(0,100), ylim=(0,120)) # 100 sample constraint
+        ax.set_title("Serial Channel 1")
+        ax.set_xlabel('Sample')
+        ax.set_ylabel('Signal')
+        ax.set_xlim(0,1000)
+        ax.set_ylim(-10000000,10000000)
+        lines = ax.plot([],[])[0]
+
+        canvas = FigureCanvasTkAgg(fig, master=root) # A tk.DrawingArea
+        canvas.get_tk_widget().place(x=10,y=10,width=600,height=400)
+        canvas.draw()
+
+        print('Start Graphing Thread')
+
+        root.after(1,plot_data)
+        
+        root.mainloop()
+            
+
+        end_time = time.perf_counter()
+            
       
         duration = end_time - start_time
         self.hackeeg.stop_and_sdatac_messagepack()

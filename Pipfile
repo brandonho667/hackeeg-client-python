@@ -16,11 +16,19 @@ numpy = "*"
 jsonlines = "*"
 msgpack = "*"
 autopep8 = "*"
-gnureadline= "*"
+gnureadline = "*"
 pylsl = "*"
 twine = "*"
 matplotlib = "*"
-hackeeg = {editable = true, path = "."}
+tk = "*"
 
 [requires]
 python_version = "3.8"
+
+[packages.hackeeg]
+editable = true
+path = "."
+
+[packages.e1839a8]
+path = "."
+editable = true
