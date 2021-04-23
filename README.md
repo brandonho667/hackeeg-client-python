@@ -1,4 +1,11 @@
-Need this for gnureadline: sudo apt-get install libncurses5-dev
+# How to run
+
+pipenv shell
+pipenv update (installs dependencies)
+
+For gnureadline in linux: sudo apt-get install libncurses5-dev
+Run stream: python3 ./bin/hackeeg_stream.py --sps 8000 -g 24 -C --quiet -f test1.txt /dev/ttyACM0
+Find port on linux: ls /dev/tty* (the one with an ACM following)
 
 # hackeeg-client-python
 Python client software for [HackEEG TI ADS1299 Arduino shield](https://github.com/starcat-io/hackeeg-shield)
