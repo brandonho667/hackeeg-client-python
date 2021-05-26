@@ -97,10 +97,11 @@ class HackEegTestApplication:
         self.stream_id = str(uuid.uuid4())
         self.read_samples_continuously = True
         self.continuous_mode = False
-        self.data_stream = np.array([])
+        self.data_stream = []
         self.sample_counter = 0
         self.step = 0
         self.graph_step = self.step
+        self.time = 0
 
         print(f"platform: {sys.platform}")
         if sys.platform == "linux" or sys.platform == "linux2" or sys.platform == "darwin":
@@ -272,7 +273,7 @@ class HackEegTestApplication:
         self.messagepack = args.messagepack
         self.hackeeg.connect()
         self.setup(samples_per_second=self.samples_per_second, gain=self.gain, messagepack=self.messagepack)
-        self.dataMatrix = []  # initialize data matrix to RAM
+        self.dataMatrix = [] # initialize data matrix to RAM
 
     def process_sample(self, result):
         if result:
@@ -331,7 +332,6 @@ class HackEegTestApplication:
 
         # samples = []
         # sample_counter = 0
-
         dataThread = threading.Thread(target=self.getDataStream)
         dataThread.start()
         print("Started data acquisition thread")
@@ -339,41 +339,29 @@ class HackEegTestApplication:
         start_time = time.perf_counter()
         end_time = time.perf_counter()
 
+        self.time = time.perf_counter()
+
         def plot_data():
             if not dataThread.is_alive():
                 root.quit()
-            if self.graph_step != self.step:
-                temp = self.dataMatrix[self.step-1][2]
-                if len(self.data_stream) < 1000:
-                    self.data_stream = np.append(self.data_stream, temp)
-                else:
-                    self.data_stream[0:999] = self.data_stream[1:1000]
-                    self.data_stream[999] = temp
+            currstep = self.step
+            # time.perf_counter() - self.time > 1
+            if self.graph_step < currstep:
+                graph_width = 100000
+                np_dataMatrix = np.array(self.dataMatrix[self.graph_step:currstep])
+                temp = np_dataMatrix[:,2]
+                # print(self.dataMatrix)
+                self.data_stream.extend(temp)
+
+                if len(self.data_stream) > graph_width:
+                    del self.data_stream[0:len(temp)]
                 lines.set_xdata(np.arange(0,len(self.data_stream)))
                 lines.set_ydata(self.data_stream)
                 canvas.draw()
-                self.graph_step = self.step
+                self.graph_step = currstep
+                # print(time.perf_counter() - self.time)
+                self.time = time.perf_counter()
             root.after(1,plot_data)
-
-            # if ((self.sample_counter < self.max_samples and not self.continuous_mode) or \
-            #     (self.read_samples_continuously and self.continuous_mode)):
-            #     result = self.hackeeg.read_rdatac_response()
-            #     end_time = time.perf_counter()
-            #     self.sample_counter += 1
-            #     if self.continuous_mode:
-            #         self.read_keyboard_input()
-            #     self.process_sample(result, samples)
-            #     if self.dataMatrix[-1]:
-            #         temp = self.dataMatrix[-1][2]
-            #         if len(self.data_stream) < 1000:
-            #             self.data_stream = np.append(self.data_stream, temp)
-            #         else:
-            #             self.data_stream[0:999] = self.data_stream[1:1000]
-            #             self.data_stream[999] = temp
-            #         lines.set_xdata(np.arange(0,len(self.data_stream)))
-            #         lines.set_ydata(self.data_stream)
-            #         canvas.draw()
-            # root.after(1,plot_data)
 
         #-----Main GUI code-----
         root = tk.Tk()
@@ -390,8 +378,8 @@ class HackEegTestApplication:
         ax.set_title("Serial Channel 1")
         ax.set_xlabel('Sample')
         ax.set_ylabel('Signal')
-        ax.set_xlim(0,1000)
-        ax.set_ylim(-10000000,10000000)
+        ax.set_xlim(0,100000)
+        ax.set_ylim(6500000,8500000)
         lines = ax.plot([],[])[0]
 
         canvas = FigureCanvasTkAgg(fig, master=root) # A tk.DrawingArea
@@ -420,7 +408,9 @@ class HackEegTestApplication:
 
         print(f"duration in seconds: {duration}")
         samples_per_second = self.sample_counter / duration
+        # plotted_per_second = plot_counter / duration
         print(f"samples per second: {samples_per_second}")
+        # print(f"plotted samples per second: {plotted_per_second}")
         # dropped_samples = self.find_dropped_samples(samples, sample_counter)
         dropped_samples = len(self.dataMatrix)-self.sample_counter
         print(f"dropped samples: {dropped_samples}")
