@@ -178,5 +178,5 @@ class RawGraphPage(tk.Frame):
         back_button.pack()
 
 app = HackEEGapp()
-anim = animation.FuncAnimation(f, animate, interval=100)
+anim = animation.FuncAnimation(f, animate, interval=1000)
 app.mainloop()
