@@ -4,7 +4,7 @@ pipenv shell
 pipenv update (installs dependencies)
 
 For gnureadline in linux: sudo apt-get install libncurses5-dev
-Run stream: python3 hackeeg_gui.py
+Run GUI: python3 hackeeg_gui.py
 Find port on linux: ls /dev/tty* (the one with an ACM following)
 
 # hackeeg-client-python
