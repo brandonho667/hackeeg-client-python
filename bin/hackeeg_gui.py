@@ -28,10 +28,18 @@ for i in range(0,9):
     data.append([])
 
 filename_var = None
+lowpass_var = None
+pause_var = False
+pause_axes = []
+channel_vars = []
+colors = ['#ff0000','#ffa500','#ffff00','#008000','#0000ff','#4b0082','#ee82ee','k']
+
 
 def animate(i):
+    global a
     global dataStream
     global data
+    global pause_axes
     if not dataStream:
         return
     a.clear()
@@ -44,8 +52,26 @@ def animate(i):
         diffs = np.subtract(tmp_ds[0][1:-1],tmp_ds[0][0:-2])
         sps = 1000000/(sum(diffs)/len(diffs))
     dataStream.remove(len(tmp_ds[0]))
-    a.plot(np.arange(0,len(data[1])), data[1])
-    a.set_title("Channel 1\nsps: " + str(sps))
+    update_graph()
+    a.set_title("Channel Data\nsps: " + str(sps))
+    a.autoscale(axis='x', tight=True)
+    if pause_var:
+        a.axis(pause_axes)
+        anim.event_source.stop()
+
+def update_graph():
+    global data
+    global pause_var
+    global lowpass_var
+    global channel_vars
+    n = 0 if pause_var or len(data[0]) <= 40000 else len(data[0])-40000
+    # select data from filters
+    curr_data = data
+    for i in range(0,8):
+        if channel_vars[i].get():
+            a.plot(np.arange(n,len(data[i+1])), data[i+1][n:], colors[i], label="Ch."+str(i+1))
+    a.legend(loc=1)
+    
 
 def save_window():
     global filename_var
@@ -76,6 +102,9 @@ def reset():
 
 class HackEEGapp(tk.Tk):
     def __init__(self, *args, **kwargs):
+        global lowpass_var
+        global channel_vars
+
         tk.Tk.__init__(self, *args, **kwargs)
 
         # tk.Tk.iconbitmap(self, default="nameoficon.ico")
@@ -89,8 +118,6 @@ class HackEEGapp(tk.Tk):
         container.grid_rowconfigure(0, weight=1)
         container.grid_columnconfigure(0, weight=1)
 
-        
-
         menubar = tk.Menu(container)
         datamenu = tk.Menu(menubar, tearoff=0)
         datamenu.add_command(label="Save", command=save_window)
@@ -98,7 +125,20 @@ class HackEEGapp(tk.Tk):
 
         # datamenu.add_separator()
         # filemenu.add_command(label="Exit")
-        menubar.add_cascade(label="Data Stream", menu=datamenu)
+        menubar.add_cascade(label="Data", menu=datamenu)
+
+        lowpass_var = tk.IntVar()
+        filtermenu = tk.Menu(menubar, tearoff=0)
+        filtermenu.add_checkbutton(label="Low-pass", onvalue=1, offvalue=0, variable=lowpass_var)
+        filtermenu.add_separator()
+
+        menubar.add_cascade(label="Filters", menu=filtermenu)
+        
+        channelmenu = tk.Menu(menubar, tearoff=0)
+        for i in range(0,8):
+            channel_vars.append(tk.IntVar(value=1))
+            channelmenu.add_checkbutton(label="Channel " + str(i+1), onvalue=1, offvalue=0, variable=channel_vars[i])
+        menubar.add_cascade(label="View", menu=channelmenu)
 
         tk.Tk.config(self, menu=menubar)
 
@@ -215,10 +255,15 @@ class RawGraphPage(tk.Frame):
                 datathread_button.config(text="Start Data Acquisition")
 
         def graph_toggle():
+            global pause_var
+            global pause_axes
             if graph_button.config('text')[-1] == "Pause Graphing":
-                anim.event_source.stop()
+                pause_var = True
+                xmin, xmax, ymin, ymax = a.axis()
+                pause_axes = [xmin, xmax, ymin, ymax]
                 graph_button.config(text="Continue Graphing")
             else:
+                pause_var = False
                 anim.event_source.start()
                 graph_button.config(text="Pause Graphing")
 
