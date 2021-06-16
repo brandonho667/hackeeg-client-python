@@ -21,6 +21,7 @@ pylsl = "*"
 twine = "*"
 matplotlib = "*"
 tk = "*"
+scipy = "*"
 
 [requires]
 python_version = "3.8"
