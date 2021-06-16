@@ -6,6 +6,7 @@ from matplotlib.figure import Figure
 import matplotlib.animation as animation
 from matplotlib import style
 from matplotlib import pyplot as plt
+from datetime import datetime
 
 from scipy import signal
 
@@ -95,11 +96,11 @@ def save_window():
             file.writelines('\t'.join(str(j[i]) for j in data) + '\n' for i in range(0,len(data[0])))
         popup.destroy()
 
-    popup.wm_title("Save Data to File")
+    popup.wm_title("Save Filtered Data to File")
     label = ttk.Label(popup, text="File Name", font=NORMAL_FONT)
     label.pack(side="top", padx=10, pady=10)
     filename_entry = tk.Entry(popup, textvariable=filename_var, font=NORMAL_FONT)
-    filename_entry.insert(0, filename_var.get())
+    filename_entry.insert(0, "Filt_Data - "+datetime.now().strftime("%Y-%m-%d_%H_%M_%S"))
     filename_entry.pack(padx=10, pady=10)
     save_button = ttk.Button(popup, text="Save", command=save_leave)
     save_button.pack(pady=10)
@@ -195,7 +196,7 @@ class StartPage(tk.Frame):
         quiet_var = tk.IntVar(value=1)
         msgpck_var = tk.IntVar()
         debug_var = tk.IntVar()
-        filename_var = tk.StringVar(value="test")
+        filename_var = tk.StringVar(value="RAW_DATA - "+datetime.now().strftime("%Y-%m-%d_%H_%M_%S"))
 
         # signal args
         signal_label = tk.Label(self, text="Signal", font=NORMAL_FONT)
@@ -274,8 +275,9 @@ class StartPage(tk.Frame):
         Wn_entry.grid(row=r+4, column=c+2, padx=5, pady=5)
 
         def parse_args():
-            args_list = ["serial_port", "samples", "sps", "gain", "filename", "continuous", "quiet", "msgpck", "debug"]
+            # args_list = ["serial_port", "samples", "sps", "gain", "filename", "continuous", "quiet", "msgpck", "debug"]
             args = {}
+            args["filename"] = filename_var.get() if filename_var.get() != "" else "RAW_DATA - "+datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
             args["serial_port"] = serial_port_var.get() if serial_port_var.get() != "" else None
             args["samples"] = samples_var.get() if samples_var.get() != 0 else 50000
             args["sps"] = sps_var.get() if sps_var.get() != 0 else 500
@@ -362,7 +364,7 @@ class RawGraphPage(tk.Frame):
 
                 for k in range(len(data[ch])-len_new, len(data[ch])):
                     y_k = filt_b[0]*data[ch][k]
-                    for n in range(1, 2*filter_args["N"]+1):
+                    for n in range(1, len(filt_a)):
                         y_k += filt_b[n]*data[ch][k-n]-filt_a[n]*filt_data[ch][k-n]
                     filt_data[ch].append(y_k)
 

@@ -49,7 +49,7 @@ class HackEEGDataStream:
         self.debug = args["debug"]
         self.samples_per_second = args["sps"]
         self.gain = args["gain"]
-
+        self.fileName = args["filename"]
         self.continuous_mode = args["continuous"]
 
         if "lsl" in args:
@@ -176,14 +176,14 @@ class HackEEGDataStream:
             (self.read_samples_continuously and self.continuous_mode)):
             while not queue.empty():
                 timestamp, channel_data = queue.get()
-                # with open("../tests/"+self.fileName, 'a') as file:
-                #     file.writelines(str(timestamp) + '\t' + '\t'.join(str(j) for j in channel_data) + '\n')
                 if not self.quiet:
                     print(f"timestamp:{timestamp} sample_number: {sample_number}| ",
                             end='')
                     for channel_number, sample in enumerate(channel_data):
                         print(f"{channel_number + 1}:{sample}", end='')
                 if not self.pause_toggle:
+                    with open("../tests/"+self.fileName, 'a') as file:
+                        file.writelines(str(timestamp) + '\t' + '\t'.join(str(j) for j in channel_data) + '\n')
                     self.dataMatrix[0].append(timestamp)
                     for channel_number, sample in enumerate(channel_data):
                         self.dataMatrix[channel_number+1].append(sample)
@@ -202,12 +202,12 @@ class HackEEGDataStream:
         self.pause_toggle = True
         
         
-    def save(self):
-        print('Saving data ....')
-        if self.fileName:
-            with open("../tests/"+self.fileName, 'w') as file:
-                file.writelines('\t'.join(str(j[i]) for j in self.dataMatrix) + '\n' for i in range(0,len(self.dataMatrix[0])))
-                # save to file
+    # def save(self):
+    #     print('Saving data ....')
+    #     if self.fileName:
+    #         with open("../tests/"+self.fileName, 'w') as file:
+    #             file.writelines('\t'.join(str(j[i]) for j in self.dataMatrix) + '\n' for i in range(0,len(self.dataMatrix[0])))
+    #             # save to file
 
     def remove(self, index):
         for i in range(0,len(self.dataMatrix)):
