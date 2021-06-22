@@ -127,7 +127,7 @@ class HackEEGDataStream:
         self.hackeeg.wreg(ads1299.CHnSET + 2, ads1299.ELECTRODE_INPUT | gain_setting)
         self.hackeeg.wreg(ads1299.CHnSET + 3, ads1299.ELECTRODE_INPUT | gain_setting)
         self.hackeeg.wreg(ads1299.CHnSET + 4, ads1299.ELECTRODE_INPUT | gain_setting)
-        self.hackeeg.wreg(ads1299.CHnSET + 5, ads1299.ELECTRODE_INPUT | 0)
+        self.hackeeg.wreg(ads1299.CHnSET + 5, ads1299.ELECTRODE_INPUT | gain_setting)
         self.hackeeg.wreg(ads1299.CHnSET + 6, ads1299.ELECTRODE_INPUT | 0)
         self.hackeeg.wreg(ads1299.CHnSET + 7, ads1299.ELECTRODE_INPUT | 0)
         self.hackeeg.wreg(ads1299.CHnSET + 8, ads1299.ELECTRODE_INPUT | 0)
@@ -182,7 +182,7 @@ class HackEEGDataStream:
                     for channel_number, sample in enumerate(channel_data):
                         print(f"{channel_number + 1}:{sample}", end='')
                 if not self.pause_toggle:
-                    with open("../tests/"+self.fileName, 'a') as file:
+                    with open("../data/"+self.fileName, 'a') as file:
                         file.writelines(str(timestamp) + '\t' + '\t'.join(str(j) for j in channel_data) + '\n')
                     self.dataMatrix[0].append(timestamp)
                     for channel_number, sample in enumerate(channel_data):

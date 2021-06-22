@@ -20,10 +20,13 @@ import threading
 
 LARGE_FONT = ("Verdana", 12)
 NORMAL_FONT = ("calibre", 10)
+TO_VOLT = 4.5/(2**23)*10**6
 style.use("ggplot")
 
-f = Figure()
-a = f.add_subplot(111)
+fig = Figure()
+subplots = []
+
+# a = fig.add_subplot(111)
 
 dataStream = None
 graph_step = 0
@@ -34,11 +37,16 @@ for i in range(0,9):
     filt_data.append([0]*8)
 
 filename_var = None
-lowpass_var = None
+filt_filename_var = None
+filter_var = None
 pause_var = False
+start_var = False
 pause_axes = []
 channel_vars = []
+num_channel = 0
 colors = ['#ff0000','#ffa500','#ffff00','#008000','#0000ff','#4b0082','#ee82ee','k']
+
+sps = 0
 
 c=3
 r=2
@@ -50,57 +58,121 @@ filter_args = {}
 
 
 def animate(i):
-    global a
+    # global a
+    global sps
     global dataStream
-    global pause_axes
-    global graph_step
+    # global pause_axes
+    # global graph_step
+
+    # if not dataStream:
+    #     return
+
+    # graph_ds = data[0][graph_step:]
+    
+    # a.clear()
+    
+    # update_graph()
+    # if sps != 0:
+    #     a.set_title("Channel Data\nsps: " + str(int(sps)))
+    # a.autoscale(axis='x', tight=True)
+    # if pause_var:
+    #     a.axis(pause_axes)
+    #     anim.event_source.stop()
+
+    global fig, subplots, start_var
+
+    # plt.close(fig)
 
     if not dataStream:
         return
 
-    graph_ds = data[0][graph_step:]
-    sps = 0
-    if len(graph_ds) > 9:
-        diffs = np.subtract(graph_ds[1:-1],graph_ds[0:-2])
-        sps = 1000000/(sum(diffs)/len(diffs))
-    graph_step = len(data[0])
-    a.clear()
+    if sps != 0:
+        fig.suptitle("Channel Data\nsps: " + str(int(sps)))
+
+    chnls = []
+    for j, c in enumerate(channel_vars):
+        if c.get():
+            chnls.append(j)
+    # print(chnls)
+
+    if start_var:
+        fig.clear()
+        subplots = [0]*len(chnls)
+
+        for i, ch in enumerate(chnls):
+            subplots[i] = fig.add_subplot(len(chnls),1,i+1)
+        start_var = False    
+
+    # reorg
+    elif len(subplots) != len(chnls):
+        fig.clear()
+        subplots = [0]*len(chnls)
     
-    update_graph()
-    a.set_title("Channel Data\nsps: " + str(sps))
-    a.autoscale(axis='x', tight=True)
+        for i, ch in enumerate(chnls):
+            subplots[i] = fig.add_subplot(len(chnls),1,i+1)
+
+    f_n = 9 if pause_var or len(filt_data[1]) <= 40000 else len(filt_data[1])-40000
+    f_end = len(filt_data[1])
+    n = 9 if pause_var or len(data[1]) <= 40000 else len(data[1])-40000
+    end = len(data[1])
+    
+    for i, ch in enumerate(chnls):
+        subplots[i].clear()
+        subplots[i].autoscale(axis='x', tight=True)
+
+        if filter_var.get():
+            graph_data = filt_data[i+1][f_n:f_end]
+            subplots[i].plot(np.arange(f_n,f_n+len(graph_data)), graph_data, colors[ch], label="Ch."+str(ch+1))
+        else:
+            graph_data = data[i+1][n:end]
+            subplots[i].plot(np.arange(n, n+len(graph_data)), graph_data, colors[ch], label="Ch."+str(ch+1))
+        subplots[i].legend(loc=1)
+        if pause_var:
+            subplots[i].axis(pause_axes)
+
     if pause_var:
-        a.axis(pause_axes)
+        for i in range(len(subplots)-1):
+            subplots[i].sharex(subplots[i-1])
+            subplots[i].sharey(subplots[i-1])
         anim.event_source.stop()
 
-def update_graph():
-    global filt_data
-    global pause_var
-    global channel_vars
-    n = 9 if pause_var or len(filt_data[1]) <= 40000 else len(filt_data[1])-40000
-    # select data from filters
-    for i in range(0,8):
-        if channel_vars[i].get():
-            a.plot(np.arange(n,len(filt_data[i+1])), filt_data[i+1][n:], colors[i], label="Ch."+str(i+1))
-    a.legend(loc=1)
-    
 
+# def update_graph():
+#     global data
+#     global pause_var
+#     global channel_vars
+    
+#     # select data from filters
+#     for i in range(0,8):
+#         if channel_vars[i].get():
+#             f_n = 9 if pause_var or len(filt_data[1]) <= 40000 else len(filt_data[1])-40000
+#             n = 9 if pause_var or len(data[1]) <= 40000 else len(data[1])-40000
+#             if filter_var.get():
+#                 graph_data = copy.deepcopy(filt_data[i+1][f_n:])
+#                 a.plot(np.arange(f_n,f_n+len(graph_data)), graph_data, colors[i], label="Ch."+str(i+1))
+#             else:
+#                 graph_data = copy.deepcopy(data[i+1][n:])
+#                 a.plot(np.arange(n, n+len(graph_data)), graph_data, colors[i], label="Ch."+str(i+1))
+    # a.legend(loc=1)
+    
 def save_window():
-    global filename_var
-    if not filename_var:
-        return
+    global filt_filename_var
     popup = tk.Tk()
     
+    
     def save_leave():
-        with open("../tests/"+filename_var.get(), 'w') as file:
-            file.writelines('\t'.join(str(j[i]) for j in data) + '\n' for i in range(0,len(data[0])))
+        global data
+        global filt_filename_var
+        with open("../data/"+filt_filename_var.get(), 'w') as file:
+            file.writelines('\t'.join(str(j[i]) for j in data) + '\n' for i in range(9,len(data[0])))
         popup.destroy()
 
     popup.wm_title("Save Filtered Data to File")
     label = ttk.Label(popup, text="File Name", font=NORMAL_FONT)
     label.pack(side="top", padx=10, pady=10)
-    filename_entry = tk.Entry(popup, textvariable=filename_var, font=NORMAL_FONT)
-    filename_entry.insert(0, "Filt_Data - "+datetime.now().strftime("%Y-%m-%d_%H_%M_%S"))
+    filt_filename_var = tk.StringVar(popup, value="Filt_Data - "+datetime.now().strftime("%Y-%m-%d_%H_%M_%S"))
+    filename_entry = tk.Entry(popup, textvariable=filt_filename_var, font=NORMAL_FONT)
+    # filename_entry.insert(0, filt_filename_var.get())
     filename_entry.pack(padx=10, pady=10)
     save_button = ttk.Button(popup, text="Save", command=save_leave)
     save_button.pack(pady=10)
@@ -117,7 +189,7 @@ def reset():
 
 class HackEEGapp(tk.Tk):
     def __init__(self, *args, **kwargs):
-        global lowpass_var
+        global filter_var
         global channel_vars
 
         tk.Tk.__init__(self, *args, **kwargs)
@@ -143,15 +215,15 @@ class HackEEGapp(tk.Tk):
         menubar.add_cascade(label="Data", menu=datamenu)
 
         # lowpass_var = tk.IntVar()
-        # filtermenu = tk.Menu(menubar, tearoff=0)
-        # filtermenu.add_checkbutton(label="Low-pass", onvalue=1, offvalue=0, variable=lowpass_var)
-        # filtermenu.add_separator()
+        filtermenu = tk.Menu(menubar, tearoff=0)
+        filter_var = tk.IntVar(value=0)
+        filtermenu.add_checkbutton(label="Toggle Filter", onvalue=1, offvalue=0, variable=filter_var)
 
-        # menubar.add_cascade(label="Filters", menu=filtermenu)
+        menubar.add_cascade(label="Filter", menu=filtermenu)
         
         channelmenu = tk.Menu(menubar, tearoff=0)
         for i in range(0,8):
-            channel_vars.append(tk.IntVar(value=1))
+            channel_vars.append(tk.IntVar(value=0))
             channelmenu.add_checkbutton(label="Channel " + str(i+1), onvalue=1, offvalue=0, variable=channel_vars[i])
         menubar.add_cascade(label="View", menu=channelmenu)
 
@@ -293,14 +365,15 @@ class StartPage(tk.Frame):
             global filt_a,filt_b
             global filter_args
             dataStream = HackEEGDataStream(parse_args())
-            filter_args["N"] = filter_args["N"].get()
-            filter_args["rp"] = float(filter_args["rp"].get())
-            filter_args["rs"] = float(filter_args["rs"].get())
-            filter_args["Wn"] = [int(x)*2/sps_var.get() for x in filter_args["Wn"].get().split(", ")]
-            filter_args["btype"] = filter_args["btype"].get()
-            filter_args["analog"] = False
-            print(filter_args)
-            filt_b,filt_a = signal.ellip(**filter_args)
+            filter_vals = {}
+            filter_vals["N"] = filter_args["N"].get()
+            filter_vals["rp"] = float(filter_args["rp"].get())
+            filter_vals["rs"] = float(filter_args["rs"].get())
+            filter_vals["Wn"] = [int(x)*2/sps_var.get() for x in filter_args["Wn"].get().split(", ")]
+            filter_vals["btype"] = filter_args["btype"].get()
+            filter_vals["analog"] = False
+            print(filter_vals)
+            filt_b,filt_a = signal.ellip(**filter_vals)
             print(filt_b,filt_a)
             controller.show_frame(RawGraphPage)
             
@@ -317,6 +390,7 @@ class RawGraphPage(tk.Frame):
 
         def data_toggle():
             if datathread_button.config('text')[-1] == "Start Data Acquisition":
+                global subplots
                 dataStream.start()
                 filter_data()
                 datathread_button.config(text="Pause Data Acquisition")
@@ -326,14 +400,17 @@ class RawGraphPage(tk.Frame):
 
         def graph_toggle():
             global pause_var
+            global start_var
             global pause_axes
             if graph_button.config('text')[-1] == "Pause Graphing":
                 pause_var = True
-                xmin, xmax, ymin, ymax = a.axis()
-                pause_axes = [xmin, xmax, ymin, ymax]
+                if subplots[0]:
+                    xmin, xmax, ymin, ymax = subplots[0].axis()
+                    pause_axes = [xmin, xmax, ymin, ymax]
                 graph_button.config(text="Continue Graphing")
             else:
                 pause_var = False
+                start_var = True
                 anim.event_source.start()
                 graph_button.config(text="Pause Graphing")
 
@@ -343,7 +420,7 @@ class RawGraphPage(tk.Frame):
         graph_button = ttk.Button(self, text="Pause Graphing", command=graph_toggle)
         graph_button.pack()
 
-        canvas = FigureCanvasTkAgg(f, self)
+        canvas = FigureCanvasTkAgg(fig, self)
         canvas.draw()
         canvas.get_tk_widget().pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True)
 
@@ -354,6 +431,7 @@ class RawGraphPage(tk.Frame):
         def filter_data():
             global dataStream
             global data
+            global sps
             
             def filter(ch, len_new):
                 global data
@@ -361,6 +439,8 @@ class RawGraphPage(tk.Frame):
                 global filter_args
                 global filt_a
                 global filt_b
+
+                # filt_data[ch].extend(signal.lfilter(filt_b, filt_a, data[ch][-len_new:]))
 
                 for k in range(len(data[ch])-len_new, len(data[ch])):
                     y_k = filt_b[0]*data[ch][k]
@@ -372,20 +452,30 @@ class RawGraphPage(tk.Frame):
             if not dataStream or dataStream.pause_toggle:
                 return
             
-            tmp_ds = copy.deepcopy(dataStream.dataMatrix)
+            tmp_ds = dataStream.dataMatrix[0:len(dataStream.dataMatrix)]
+
+            sps = 0
+            if len(tmp_ds[0]) > 9:
+                diffs = np.subtract(tmp_ds[0][1:-1],tmp_ds[0][0:-2])
+                sps = 1000000/(sum(diffs)/len(diffs))
+
             for i in range(0,len(tmp_ds)):
+                if i != 0:
+                    tmp_ds[i] = [d*TO_VOLT for d in tmp_ds[i]]
                 data[i].extend(tmp_ds[i])
                 if len(data[i]) <= 9 or i == 0:
                     continue
-                data[i][-len(tmp_ds[i]):] = signal.medfilt(data[i][-len(tmp_ds[i]):], kernel_size=9)
+                data[i][-9-len(tmp_ds[i]):] = signal.medfilt(data[i][-9-len(tmp_ds[i]):], kernel_size=9)
                 filter(i, len(tmp_ds[i]))
             dataStream.remove(len(tmp_ds[0]))
-            threading.Timer(1, filter_data).start()
+            threading.Timer(0.5, filter_data).start()
 
         def stop_return():
             global dataStream
+            global filename_var
             dataStream.stop()
             dataStream = None
+            filename_var = tk.StringVar(value="RAW_DATA - "+datetime.now().strftime("%Y-%m-%d_%H_%M_%S"))
             datathread_button.config(text="Start Data Acquisition")
             controller.show_frame(StartPage)
             anim.event_source.start()
@@ -397,6 +487,6 @@ class RawGraphPage(tk.Frame):
 
 app = HackEEGapp()
 app.geometry("1280x720")
-anim = animation.FuncAnimation(f, animate, interval=1000)
+anim = animation.FuncAnimation(fig, animate, interval=500)
 
 app.mainloop()
