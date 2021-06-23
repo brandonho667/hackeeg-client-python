@@ -12,7 +12,9 @@ import time
 import sys
 import select
 import threading
-# import msvcrt
+import queue
+from multiprocessing import Process, Queue, Value
+
 
 from pylsl import StreamInfo, StreamOutlet
 
@@ -81,15 +83,11 @@ class HackEegTestApplication:
     def __init__(self):
         self.serial_port_name = None
         self.hackeeg = None
-        self.debug = False
         self.channel_test = False
-        self.quiet = False
         self.hex = False
         self.messagepack = False
         self.channels = 8
-        self.samples_per_second = 500
         self.gain = 1
-        self.max_samples = 5000
         self.lsl = False
         self.lsl_info = None
         self.lsl_outlet = None
@@ -97,11 +95,18 @@ class HackEegTestApplication:
         self.stream_id = str(uuid.uuid4())
         self.read_samples_continuously = True
         self.continuous_mode = False
-        self.data_stream = []
-        self.sample_counter = 0
-        self.step = 0
-        self.graph_step = self.step
-        self.time = 0
+        self.graph_step = 0
+        self.start_time = -1
+        self.data_process = None
+        self.connector = Queue()
+        self.pause_toggle = False
+        self.dataMatrix = [[],[],[],[],[],[],[],[],[]] # initialize data matrix to RAM
+
+        self.samples_per_second = 0
+        self.gain = 0
+        self.fileName = ""
+        self.debug = False
+
 
         print(f"platform: {sys.platform}")
         if sys.platform == "linux" or sys.platform == "linux2" or sys.platform == "darwin":
@@ -110,17 +115,6 @@ class HackEegTestApplication:
             self.non_blocking_console = WindowsNonBlockingConsole()
         self.non_blocking_console.init()
         # self.debug = True
-
-    def find_dropped_samples(self, samples, number_of_samples):
-        sample_numbers = {self.get_sample_number(sample): 1 for sample in samples}
-        correct_sequence = {index: 1 for index in range(0, number_of_samples)}
-        missing_samples = [sample_number for sample_number in correct_sequence.keys()
-                           if sample_number not in sample_numbers]
-        return len(missing_samples)
-
-    def get_sample_number(self, sample):
-        sample_number = sample.get('sample_number', -1)
-        return sample_number
 
     def read_keyboard_input(self):
         char = self.non_blocking_console.get_data()
@@ -169,6 +163,8 @@ class HackEegTestApplication:
             self.hackeeg.jsonlines_mode()
         self.hackeeg.start()
         self.hackeeg.rdatac()
+        self.launch_read_datastream(self.connector)
+
         return
 
     def channel_config_input(self, gain_setting):
@@ -273,56 +269,61 @@ class HackEegTestApplication:
         self.messagepack = args.messagepack
         self.hackeeg.connect()
         self.setup(samples_per_second=self.samples_per_second, gain=self.gain, messagepack=self.messagepack)
-        self.dataMatrix = [] # initialize data matrix to RAM
 
-    def process_sample(self, result):
-        if result:
-            status_code = result.get(self.hackeeg.MpStatusCodeKey)
-            data = result.get(self.hackeeg.MpDataKey)
-            #samples.append(result)
-            if status_code == Status.Ok and data:
-                timestamp = result.get('timestamp')
-                sample_number = result.get('sample_number')
-                # ads_gpio = result.get(‘ads_gpio’)
-                # loff_statp = result.get(‘loff_statp’)
-                # loff_statn = result.get(‘loff_statn’)
-                channel_data = result.get('channel_data')
-                # data_hex = result.get(‘data_hex’)
+
+    def read_datastream(self, queue):
+        while self.read_samples_continuously:
+            result = self.hackeeg.read_rdatac_response()
+            if result:
+                status_code = result.get(self.hackeeg.MpStatusCodeKey)
+                data = result.get(self.hackeeg.MpDataKey)
+                if status_code == Status.Ok and data:
+                    timestamp = result.get('timestamp')
+                    channel_data = result.get('channel_data')
+                    queue.put((timestamp, channel_data))
+                else:
+                    if not self.quiet:
+                        print(data)
+            else:
+                print("no data to decode")
+                print(f"result: {result}")
+
+    def launch_read_datastream(self, queue):
+        self.data_process = Process(target=self.read_datastream, args=(queue,))
+        self.data_process.start()
+
+    def process_datastream(self, queue):
+        while ((len(self.dataMatrix[0])< self.max_samples and not self.continuous_mode) or \
+            (self.read_samples_continuously and self.continuous_mode)):
+            while not queue.empty():
+                timestamp, channel_data = queue.get()
                 if not self.quiet:
                     print(f"timestamp:{timestamp} sample_number: {sample_number}| ",
                             end='')
                     for channel_number, sample in enumerate(channel_data):
                         print(f"{channel_number + 1}:{sample}", end='')
-                if self.fileName:
-                    myList = [timestamp,sample_number]
-                    if sample_number>=1 and abs(channel_data[-1]-self.dataMatrix[-1][-1])>20000:
-                        # print(f"bad data diff: {abs(channel_data[-1]-self.dataMatrix[-1][-1])}")
-                        self.dataMatrix.append(self.dataMatrix[-1])
-                    else:
-                        for channel_number, sample in enumerate(channel_data):
-                            myList.append(sample)
-                        self.dataMatrix.append(myList)
-                        self.step += 1
-                if self.lsl:
-                    self.lsl_outlet.push_sample(channel_data)
-            else:
-                if not self.quiet:
-                    print(data)
-        else:
-            print("no data to decode")
-            print(f"result: {result}")
+                self.dataMatrix[0].append(timestamp)
+                for channel_number, sample in enumerate(channel_data):
+                    self.dataMatrix[channel_number+1].append(sample)
 
-    def getDataStream(self):
-        while ((self.sample_counter < self.max_samples and not self.continuous_mode) or \
-            (self.read_samples_continuously and self.continuous_mode)):
-            result = self.hackeeg.read_rdatac_response()
-            # end_time = time.perf_counter()
-            self.sample_counter += 1
-            if self.continuous_mode:
-                self.read_keyboard_input()
-            self.process_sample(result)
-        return
+    def start(self):
+        self.pause_toggle = False
+        self.read_samples_continuously = True
+        processThread = threading.Thread(target=self.process_datastream, args=(self.connector,))
+        processThread.start()
 
+        # self.start_time = time.perf_counter()
+        print("Started data acquisition thread")
+
+    def remove(self, index):
+        for i in range(0,len(self.dataMatrix)):
+            del self.dataMatrix[i][0:index]
+    
+    def stop(self):
+        self.data_process.terminate()
+        self.data_process.join()
+        self.hackeeg.stop_and_sdatac_messagepack()
+        self.hackeeg.blink_board_led()
 
     def main(self):
 
@@ -330,90 +331,20 @@ class HackEegTestApplication:
 
         self.parse_args()
 
-        # samples = []
-        # sample_counter = 0
-        dataThread = threading.Thread(target=self.getDataStream)
-        dataThread.start()
-        print("Started data acquisition thread")
+        self.start()
 
-        start_time = time.perf_counter()
-        end_time = time.perf_counter()
+        while self.read_samples_continuously:
+            self.read_keyboard_input()
+            continue
 
-        self.time = time.perf_counter()
+        self.stop()
 
-        def plot_data():
-            if not dataThread.is_alive():
-                root.quit()
-            currstep = self.step
-            # time.perf_counter() - self.time > 1
-            if self.graph_step < currstep:
-                graph_width = 100000
-                np_dataMatrix = np.array(self.dataMatrix[self.graph_step:currstep])
-                temp = np_dataMatrix[:,2]
-                # print(self.dataMatrix)
-                self.data_stream.extend(temp)
 
-                if len(self.data_stream) > graph_width:
-                    del self.data_stream[0:len(temp)]
-                lines.set_xdata(np.arange(0,len(self.data_stream)))
-                lines.set_ydata(self.data_stream)
-                canvas.draw()
-                self.graph_step = currstep
-                # print(time.perf_counter() - self.time)
-                self.time = time.perf_counter()
-            root.after(1,plot_data)
+        diffs = np.subtract(self.dataMatrix[0][1:-1],self.dataMatrix[0][0:-2])
+        sps = 1000000/(sum(diffs)/len(diffs))
+        print("truesps: ", sps)
 
-        #-----Main GUI code-----
-        root = tk.Tk()
-        root.title('Real Time Plot')
-        root.configure(background = 'light blue')
-        root.geometry("700x500") # window size
-
-        #-----create Plot object on GUI-----
-        # add figure canvas
-        fig = Figure()
-        ax = fig.add_subplot(111)
-
-        #ax = plt.axes(xlim=(0,100), ylim=(0,120)) # 100 sample constraint
-        ax.set_title("Serial Channel 1")
-        ax.set_xlabel('Sample')
-        ax.set_ylabel('Signal')
-        ax.set_xlim(0,100000)
-        ax.set_ylim(6500000,8500000)
-        lines = ax.plot([],[])[0]
-
-        canvas = FigureCanvasTkAgg(fig, master=root) # A tk.DrawingArea
-        canvas.get_tk_widget().place(x=10,y=10,width=600,height=400)
-        canvas.draw()
-
-        print('Start Graphing Thread')
-
-        root.after(1,plot_data)
         
-        root.mainloop()
-            
-
-        end_time = time.perf_counter()
-            
-      
-        duration = end_time - start_time
-        self.hackeeg.stop_and_sdatac_messagepack()
-        print('Saving data ....')
-        if self.fileName:
-            with open(self.fileName, 'w') as file:
-                file.writelines('\t'.join(str(j) for j in i) + '\n' for i in self.dataMatrix)
-                # save to file
-
-        self.hackeeg.blink_board_led()
-
-        print(f"duration in seconds: {duration}")
-        samples_per_second = self.sample_counter / duration
-        # plotted_per_second = plot_counter / duration
-        print(f"samples per second: {samples_per_second}")
-        # print(f"plotted samples per second: {plotted_per_second}")
-        # dropped_samples = self.find_dropped_samples(samples, sample_counter)
-        dropped_samples = len(self.dataMatrix)-self.sample_counter
-        print(f"dropped samples: {dropped_samples}")
 
 
 if __name__ == "__main__":
